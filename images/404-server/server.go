@@ -77,7 +77,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
-	http.Handle("/metrics", promhttp.Handler())
+	http.Handle("/prom", promhttp.Handler())
 
 	srv := &http.Server{
 		Addr: fmt.Sprintf(":%d", *port),
