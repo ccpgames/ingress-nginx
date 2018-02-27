@@ -44,15 +44,33 @@ func main() {
 	flag.Parse()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, "default backend - 404")
 
-		duration := time.Now().Sub(start).Seconds() * 1e3
+		// these headers and JSON response makes us look very similar to
+		// a normal ESI 404 error, without tieing into the error limit system
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set(
+			"Access-Control-Allow-Headers",
+			"Content-Type,Authorization,X-User-Agent",
+		)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set(
+			"Access-Control-Expose-Headers",
+			"Content-Type,Warning,X-Pages,"+
+				"X-ESI-Error-Limit-Remain,X-ESI-Error-Limit-Reset",
+		)
+		w.Header().Set("Access-Control-Max-Age", "600")
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, "{\"error\": \"Not found\"}")
 
 		proto := strconv.Itoa(r.ProtoMajor)
 		proto = proto + "." + strconv.Itoa(r.ProtoMinor)
 
 		requestCount.WithLabelValues(proto).Inc()
+
+		duration := time.Now().Sub(start).Seconds() * 1e3
 		requestDuration.WithLabelValues(proto).Observe(duration)
 	})
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
