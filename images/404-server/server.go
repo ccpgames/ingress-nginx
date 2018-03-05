@@ -73,7 +73,7 @@ func main() {
 		duration := time.Now().Sub(start).Seconds() * 1e3
 		requestDuration.WithLabelValues(proto).Observe(duration)
 	})
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
