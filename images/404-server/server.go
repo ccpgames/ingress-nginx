@@ -85,7 +85,7 @@ func main() {
 
 	go func() {
 		err := srv.ListenAndServe()
-		if err != http.ErrServerClosed {
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "could not start http server: %s\n", err)
 			os.Exit(1)
 		}
@@ -95,10 +95,6 @@ func main() {
 	signal.Notify(stop, syscall.SIGTERM)
 	<-stop
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	_, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	err := srv.Shutdown(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "could not graceful shutdown http server: %s\n", err)
-	}
 }
