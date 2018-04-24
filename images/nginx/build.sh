@@ -19,7 +19,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-export NGINX_VERSION=1.13.9
+export NGINX_VERSION=1.13.12
 export NDK_VERSION=0.3.0
 export VTS_VERSION=0.1.15
 export SETMISC_VERSION=0.31
@@ -27,12 +27,13 @@ export STICKY_SESSIONS_VERSION=08a395c66e42
 export MORE_HEADERS_VERSION=0.33
 export NGINX_DIGEST_AUTH=274490cec649e7300fea97fed13d84e596bbc0ce
 export NGINX_SUBSTITUTIONS=bc58cb11844bc42735bbaef7085ea86ace46d05b
-export NGINX_OPENTRACING_VERSION=0.2.1
-export OPENTRACING_CPP_VERSION=1.2.0
-export ZIPKIN_CPP_VERSION=0.2.0
-export JAEGER_VERSION=0.1.0
+export NGINX_OPENTRACING_VERSION=0.3.0
+export OPENTRACING_CPP_VERSION=1.3.0
+export ZIPKIN_CPP_VERSION=0.3.0
+export JAEGER_VERSION=0.2.0
 export MODSECURITY_VERSION=1.0.0
-export LUA_VERSION=0.10.12rc2
+export LUA_NGX_VERSION=0.10.12rc2
+export LUA_UPSTREAM_VERSION=0.07
 export COOKIE_FLAG_VERSION=1.1.0
 
 export BUILD_PATH=/tmp/build
@@ -83,6 +84,9 @@ clean-install \
   libcurl4-openssl-dev \
   procps \
   git g++ pkgconf flex bison doxygen libyajl-dev liblmdb-dev libtool dh-autoreconf libxml2 libpcre++-dev libxml2-dev \
+  lua-cjson \
+  python \
+  luarocks \
   || exit 1
 
 ln -s /usr/lib/x86_64-linux-gnu/liblua5.1.so /usr/lib/liblua.so
@@ -110,7 +114,7 @@ mkdir --verbose -p "$BUILD_PATH"
 cd "$BUILD_PATH"
 
 # download, verify and extract the source files
-get_src 5faea18857516fe68d30be39c3032bd22ed9cf85e1a6fdf32e3721d96ff7fa42 \
+get_src fb92f5602cdb8d3ab1ad47dbeca151b185d62eedb67d347bbe9d79c1438c85de \
         "http://nginx.org/download/nginx-$NGINX_VERSION.tar.gz"
 
 get_src 88e05a99a8a7419066f5ae75966fb1efc409bad4522d14986da074554ae61619 \
@@ -134,31 +138,105 @@ get_src ede0ad490cb9dd69da348bdea2a60a4c45284c9777b2f13fa48394b6b8e7671c \
 get_src 618551948ab14cac51d6e4ad00452312c7b09938f59ebff4f93875013be31f2d \
         "https://github.com/yaoweibin/ngx_http_substitutions_filter_module/archive/$NGINX_SUBSTITUTIONS.tar.gz"
 
-get_src ce66acf943a604ef9a0bb477c7efca1fe583076991647aa646aa3d8804328364 \
+get_src 2d2b8784a09c7bb4ae7f8a76ab679c54a683b8dda26db2f948982de0ad44c7a5 \
         "https://github.com/opentracing-contrib/nginx-opentracing/archive/v$NGINX_OPENTRACING_VERSION.tar.gz"
 
-get_src c77041cb2f147ac81b2b0702abfced5565a9cebc318d045c060a4c3e074009ee \
+get_src 06dc5f9740d27dc4684399e491211be46a8069a10277f25513dadeb71199ce4c \
         "https://github.com/opentracing/opentracing-cpp/archive/v$OPENTRACING_CPP_VERSION.tar.gz"
 
-get_src 611eb6a1ff1c326c472421ae2486ba34a94ddc78d90047df3f097bcdad3298e3 \
+get_src b65bb78bcd8806cf11695b980577abb5379369929240414c75eb4623a4d45cc3 \
         "https://github.com/rnburn/zipkin-cpp-opentracing/archive/v$ZIPKIN_CPP_VERSION.tar.gz"
 
 get_src 8deee6d6f7128f58bd6ba2893bd69c1fdbc8a3ad2797ba45ef94b977255d181c \
         "https://github.com/SpiderLabs/ModSecurity-nginx/archive/v$MODSECURITY_VERSION.tar.gz"
 
-get_src 18edf2d18fa331265c36516a4a19ba75d26f46eafcc5e0c2d9aa6c237e8bc110 \
-        "https://github.com/openresty/lua-nginx-module/archive/v$LUA_VERSION.tar.gz"
-
-get_src 678ec4b6c2b6bba7e8000f42feb71d2bf044a44cf3909b3cbbccb708827ca7a6 \
-        "https://github.com/jaegertracing/cpp-client/archive/v$JAEGER_VERSION.tar.gz"
+get_src 841916d60fee16fe245b67fe6938ad861ddd3f3ecf0df561d764baeda8739362 \
+        "https://github.com/jaegertracing/jaeger-client-cpp/archive/v$JAEGER_VERSION.tar.gz"
 
 get_src 9915ad1cf0734cc5b357b0d9ea92fec94764b4bf22f4dce185cbd65feda30ec1 \
         "https://github.com/AirisX/nginx_cookie_flag_module/archive/v$COOKIE_FLAG_VERSION.tar.gz"
 
-#https://blog.cloudflare.com/optimizing-tls-over-tcp-to-reduce-latency/
-curl -sSL -o nginx__dynamic_tls_records.patch https://raw.githubusercontent.com/cloudflare/sslconfig/master/patches/nginx__1.11.5_dynamic_tls_records.patch
+get_src 18edf2d18fa331265c36516a4a19ba75d26f46eafcc5e0c2d9aa6c237e8bc110 \
+        "https://github.com/openresty/lua-nginx-module/archive/v$LUA_NGX_VERSION.tar.gz"
 
-export MAKEFLAGS=-j$(($(grep -c ^processor /proc/cpuinfo) - 0))
+get_src 2a69815e4ae01aa8b170941a8e1a10b6f6a9aab699dee485d58f021dd933829a \
+        "https://github.com/openresty/lua-upstream-nginx-module/archive/v$LUA_UPSTREAM_VERSION.tar.gz"
+
+get_src d4a9ed0d2405f41eb0178462b398afde8599c5115dcc1ff8f60e2f34a41a4c21 \
+        "https://github.com/openresty/lua-resty-lrucache/archive/v0.07.tar.gz"
+
+get_src 92fd006d5ca3b3266847d33410eb280122a7f6c06334715f87acce064188a02e \
+        "https://github.com/openresty/lua-resty-core/archive/v0.1.14rc1.tar.gz"
+
+get_src eaf84f58b43289c1c3e0442ada9ed40406357f203adc96e2091638080cb8d361 \
+        "https://github.com/openresty/lua-resty-lock/archive/v0.07.tar.gz"
+
+get_src 3917d506e2d692088f7b4035c589cc32634de4ea66e40fc51259fbae43c9258d \
+        "https://github.com/hamishforbes/lua-resty-iputils/archive/v0.3.0.tar.gz"
+
+get_src 5d16e623d17d4f42cc64ea9cfb69ca960d313e12f5d828f785dd227cc483fcbd \
+        "https://github.com/openresty/lua-resty-upload/archive/v0.10.tar.gz"
+
+get_src feacc662fd7724741c2b3277b2d27b5ab2821bdb28b499d063dbd23414447249 \
+        "https://github.com/openresty/lua-resty-dns/archive/v0.21rc2.tar.gz"
+
+get_src 30a68f1828ed6a53ee6ed062132ea914201076058b1d126ea90ff8e55df09daf \
+        "https://github.com/openresty/lua-resty-string/archive/v0.11rc1.tar.gz"
+
+get_src a77bf0d7cf6a9ba017d0dc973b1a58f13e48242dd3849c5e99c07d250667c44c \
+        "https://github.com/openresty/lua-resty-balancer/archive/v0.02rc4.tar.gz"
+
+get_src 1ad2e34b111c802f9d0cdf019e986909123237a28c746b21295b63c9e785d9c3 \
+        "http://luajit.org/download/LuaJIT-2.1.0-beta3.tar.gz"
+
+
+# improve compilation times
+CORES=$(($(grep -c ^processor /proc/cpuinfo) - 0))
+
+export MAKEFLAGS=-j${CORES}
+export CTEST_BUILD_FLAGS=${MAKEFLAGS}
+export HUNTER_JOBS_NUMBER=${CORES}
+
+# luajit is not available on ppc64le and s390x
+if [[ (${ARCH} != "ppc64le") && (${ARCH} != "s390x") ]]; then
+  cd "$BUILD_PATH/LuaJIT-2.1.0-beta3"
+  make
+  make install
+  ln -sf luajit-2.1.0-beta3 /usr/local/bin/luajit
+
+  export LUAJIT_LIB=/usr/local/lib
+  export LUAJIT_INC=/usr/local/include/luajit-2.1
+  export LUA_LIB_DIR="$LUAJIT_LIB/lua"
+
+  cd "$BUILD_PATH/lua-resty-core-0.1.14rc1"
+  make install
+
+  cd "$BUILD_PATH/lua-resty-lrucache-0.07"
+  make install
+
+  cd "$BUILD_PATH/lua-resty-lock-0.07"
+  make install
+
+  cd "$BUILD_PATH/lua-resty-iputils-0.3.0"
+  make install
+
+  cd "$BUILD_PATH/lua-resty-upload-0.10"
+  make install
+
+  cd "$BUILD_PATH/lua-resty-dns-0.21rc2"
+  make install
+
+  cd "$BUILD_PATH/lua-resty-string-0.11rc1"
+  make install
+
+  cd "$BUILD_PATH/lua-resty-balancer-0.02rc4"
+  make all
+  make install
+
+  # build and install lua-resty-waf with dependencies
+  /install_lua_resty_waf.sh
+
+fi
 
 # build opentracing lib
 cd "$BUILD_PATH/opentracing-cpp-$OPENTRACING_CPP_VERSION"
@@ -169,7 +247,7 @@ make
 make install
 
 # build zipkin lib
-cd "$BUILD_PATH/cpp-client-$JAEGER_VERSION"
+cd "$BUILD_PATH/jaeger-client-cpp-$JAEGER_VERSION"
 sed -i 's/-Werror//' CMakeLists.txt
 mkdir .build
 cd .build
@@ -178,6 +256,9 @@ make
 make install
 
 export HUNTER_INSTALL_DIR=$(cat _3rdParty/Hunter/install-root-dir)
+echo "HUNTER_INSTALL_DIR: ${HUNTER_INSTALL_DIR}"
+cp $HUNTER_INSTALL_DIR/lib/libthrift* /usr/local/lib
+rm /usr/local/lib/libthrift*.a
 
 # build zipkin lib
 cd "$BUILD_PATH/zipkin-cpp-opentracing-$ZIPKIN_CPP_VERSION"
@@ -196,9 +277,10 @@ git submodule update
 
 # build modsecurity library
 cd "$BUILD_PATH"
-git clone -b v3/dev/performance --single-branch https://github.com/SpiderLabs/ModSecurity
+git clone -b v3/master --single-branch https://github.com/SpiderLabs/ModSecurity
 cd ModSecurity/
-git checkout 62022b49a22389cdecd35110e503285494fdf938 
+# checkout v3.0.2
+git checkout 8d0f51beda5c031e38741c27f29b67f0266352bb
 git submodule init
 git submodule update
 sh build.sh
@@ -208,9 +290,9 @@ make install
 
 # Download owasp modsecurity crs
 cd /etc/nginx/
-git clone -b v3.1/dev --single-branch https://github.com/SpiderLabs/owasp-modsecurity-crs
+git clone -b v3.0/master --single-branch https://github.com/SpiderLabs/owasp-modsecurity-crs
 cd owasp-modsecurity-crs
-git checkout ce36edef52c17ad4d607d435477511d1b6dbe162
+git checkout e4e0497be4d598cce0e0a8fef20d1f1e5578c8d0
 
 mv crs-setup.conf.example crs-setup.conf
 mv rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf.example rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
@@ -220,7 +302,7 @@ cd ..
 # Download modsecurity.conf
 mkdir modsecurity
 cd modsecurity
-curl -sSL -o modsecurity.conf https://raw.githubusercontent.com/SpiderLabs/ModSecurity/v3/dev/performance/modsecurity.conf-recommended
+curl -sSL -o modsecurity.conf https://raw.githubusercontent.com/SpiderLabs/ModSecurity/v3/master/modsecurity.conf-recommended
 
 # OWASP CRS v3 rules
 echo "
@@ -257,9 +339,6 @@ Include /etc/nginx/owasp-modsecurity-crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTE
 # build nginx
 cd "$BUILD_PATH/nginx-$NGINX_VERSION"
 
-echo "Applying nginx patches..."
-patch -p1 < $BUILD_PATH/nginx__dynamic_tls_records.patch
-
 WITH_FLAGS="--with-debug \
   --with-pcre-jit \
   --with-http_ssl_module \
@@ -282,11 +361,13 @@ if [[ ${ARCH} != "armv7l" || ${ARCH} != "aarch64" ]]; then
   WITH_FLAGS+=" --with-file-aio"
 fi
 
-CC_OPT="-g -O3 -flto -fPIE -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2 -Wno-deprecated-declarations --param=ssp-buffer-size=4 -DTCP_FASTOPEN=23 -Wno-error=strict-aliasing -fPIC -I$HUNTER_INSTALL_DIR/include"
-LD_OPT="-ljemalloc -Wl,-Bsymbolic-functions -fPIE -fPIC -pie -Wl,-z,relro -Wl,-z,now -L$HUNTER_INSTALL_DIR/lib"
-   
+# "Combining -flto with -g is currently experimental and expected to produce unexpected results."
+# https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
+CC_OPT="-g -Og -fPIE -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2 -Wno-deprecated-declarations --param=ssp-buffer-size=4 -DTCP_FASTOPEN=23 -Wno-error=strict-aliasing -fPIC -I$HUNTER_INSTALL_DIR/include"
+LD_OPT="-ljemalloc -fPIE -fPIC -pie -Wl,-z,relro -Wl,-z,now -L$HUNTER_INSTALL_DIR/lib"
+
 if [[ ${ARCH} == "x86_64" ]]; then
-  CC_OPT+=' -m64 -mtune=generic'
+  CC_OPT+=' -m64 -mtune=native'
 fi
 
 WITH_MODULES="--add-module=$BUILD_PATH/ngx_devel_kit-$NDK_VERSION \
@@ -296,6 +377,8 @@ WITH_MODULES="--add-module=$BUILD_PATH/ngx_devel_kit-$NDK_VERSION \
   --add-module=$BUILD_PATH/nginx-goodies-nginx-sticky-module-ng-$STICKY_SESSIONS_VERSION \
   --add-module=$BUILD_PATH/nginx-http-auth-digest-$NGINX_DIGEST_AUTH \
   --add-module=$BUILD_PATH/ngx_http_substitutions_filter_module-$NGINX_SUBSTITUTIONS \
+  --add-module=$BUILD_PATH/lua-nginx-module-$LUA_NGX_VERSION \
+  --add-module=$BUILD_PATH/lua-upstream-nginx-module-$LUA_UPSTREAM_VERSION \
   --add-module=$BUILD_PATH/nginx_cookie_flag_module-$COOKIE_FLAG_VERSION \
   --add-dynamic-module=$BUILD_PATH/nginx-opentracing-$NGINX_OPENTRACING_VERSION/opentracing \
   --add-dynamic-module=$BUILD_PATH/nginx-opentracing-$NGINX_OPENTRACING_VERSION/jaeger \
@@ -374,7 +457,7 @@ rm -rf /usr/local/modsecurity/bin
 rm -rf /usr/local/modsecurity/include
 rm -rf /usr/local/modsecurity/lib/libmodsecurity.a
 
-cp $HUNTER_INSTALL_DIR/lib/libthrift* /usr/local/lib
-rm /usr/local/lib/libthrift*.a
+rm -rf /etc/nginx/owasp-modsecurity-crs/.git
+rm -rf /etc/nginx/owasp-modsecurity-crs/util/regression-tests
 
 rm -rf $HOME/.hunter

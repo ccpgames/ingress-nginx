@@ -38,40 +38,13 @@ var _ = framework.IngressNginxDescribe("Server Tokens", func() {
 	})
 
 	AfterEach(func() {
-		updateConfigmap(serverTokens, "false", f.KubeClientSet)
 	})
 
 	It("should not exists Server header in the response", func() {
-		updateConfigmap(serverTokens, "false", f.KubeClientSet)
+		err := f.UpdateNginxConfigMapData(serverTokens, "false")
+		Expect(err).NotTo(HaveOccurred())
 
-		ing, err := f.EnsureIngress(&v1beta1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        serverTokens,
-				Namespace:   f.Namespace.Name,
-				Annotations: map[string]string{},
-			},
-			Spec: v1beta1.IngressSpec{
-				Rules: []v1beta1.IngressRule{
-					{
-						Host: serverTokens,
-						IngressRuleValue: v1beta1.IngressRuleValue{
-							HTTP: &v1beta1.HTTPIngressRuleValue{
-								Paths: []v1beta1.HTTPIngressPath{
-									{
-										Path: "/",
-										Backend: v1beta1.IngressBackend{
-											ServiceName: "http-svc",
-											ServicePort: intstr.FromInt(80),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		})
-
+		ing, err := f.EnsureIngress(framework.NewSingleIngress(serverTokens, "/", serverTokens, f.IngressController.Namespace, nil))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ing).NotTo(BeNil())
 
@@ -84,12 +57,13 @@ var _ = framework.IngressNginxDescribe("Server Tokens", func() {
 	})
 
 	It("should exists Server header in the response when is enabled", func() {
-		updateConfigmap(serverTokens, "true", f.KubeClientSet)
+		err := f.UpdateNginxConfigMapData(serverTokens, "true")
+		Expect(err).NotTo(HaveOccurred())
 
 		ing, err := f.EnsureIngress(&v1beta1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        serverTokens,
-				Namespace:   f.Namespace.Name,
+				Namespace:   f.IngressController.Namespace,
 				Annotations: map[string]string{},
 			},
 			Spec: v1beta1.IngressSpec{

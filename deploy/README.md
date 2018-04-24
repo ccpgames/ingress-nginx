@@ -108,6 +108,11 @@ nginx-ingress-controller-fdcdcd6dd-vvpgs   1/1       Running   0          11s
 ### AWS
 
 In AWS we use an Elastic Load Balancer (ELB) to expose the NGINX Ingress controller behind a Service of `Type=LoadBalancer`.
+Since Kubernetes v1.9.0 it is possible to use a classic load balancer (ELB) or network load balancer (NLB)
+Please check the [elastic load balancing AWS details page](https://aws.amazon.com/es/elasticloadbalancing/details/)
+
+#### Elastic Load Balancer - ELB
+
 This setup requires to choose in which layer (L4 or L7) we want to configure the ELB:
 
 - [Layer 4](https://en.wikipedia.org/wiki/OSI_model#Layer_4:_Transport_Layer): use TCP as the listener protocol for ports 80 and 443.
@@ -153,6 +158,26 @@ If not run:
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-without-rbac.yaml
 ```
 
+#### Network Load Balancer (NLB)
+
+This type of load balancer is supported since v1.10.0 as an ALPHA feature.
+
+```console
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/aws/service-nlb.yaml
+```
+
+If the ingress controller uses RBAC run:
+
+```console
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-with-rbac.yaml
+```
+
+If not run:
+
+```console
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-without-rbac.yaml
+```
+
 ### GCE - GKE
 
 Patch the nginx ingress controller deployment to add the flag `--publish-service`
@@ -170,13 +195,13 @@ curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/pr
 If the ingress controller uses RBAC run:
 
 ```console
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-with-rbac.yaml
+curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-with-rbac.yaml | kubectl apply -f -
 ```
 
 If not run:
 
 ```console
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-without-rbac.yaml
+curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-without-rbac.yaml | kubectl apply -f -
 ```
 
 **Important Note:** proxy protocol is not supported in GCE/GKE

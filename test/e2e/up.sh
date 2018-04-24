@@ -21,13 +21,13 @@ curl -Lo kubectl https://storage.googleapis.com/kubernetes-release/release/$KUBE
     chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
 echo "downloading minikube..."
-curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && \
+curl -Lo minikube https://storage.googleapis.com/minikube/releases/v0.25.2/minikube-linux-amd64 && \
     chmod +x minikube && \
     sudo mv minikube /usr/local/bin/
 
 echo "starting minikube..."
-# Using sync-frequency=5s helps to speed up the tests (during the cleanup of resources inside a namespace)
-sudo minikube start --vm-driver=none --kubernetes-version=$KUBERNETES_VERSION --extra-config=kubelet.sync-frequency=5s
+# Using a lower value for sync-frequency to speed up the tests (during the cleanup of resources inside a namespace)
+sudo minikube start --vm-driver=none --kubernetes-version=$KUBERNETES_VERSION --extra-config=kubelet.sync-frequency=1s
 
 minikube update-context
 

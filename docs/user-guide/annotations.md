@@ -16,11 +16,11 @@ The following annotations are supported:
 |[nginx.ingress.kubernetes.io/auth-realm](#authentication)|string|
 |[nginx.ingress.kubernetes.io/auth-secret](#authentication)|string|
 |[nginx.ingress.kubernetes.io/auth-type](#authentication)|basic or digest|
-|[nginx.ingress.kubernetes.io/auth-tls-secret](#certificate-authentication)|string|
-|[nginx.ingress.kubernetes.io/auth-tls-verify-depth](#certificate-authentication)|number|
-|[nginx.ingress.kubernetes.io/auth-tls-verify-client](#certificate-authentication)|string|
-|[nginx.ingress.kubernetes.io/auth-tls-error-page](#certificate-authentication)|string|
-|[nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream](#certificate-authentication)|"true" or "false"|
+|[nginx.ingress.kubernetes.io/auth-tls-secret](#client-certificate-authentication)|string|
+|[nginx.ingress.kubernetes.io/auth-tls-verify-depth](#client-certificate-authentication)|number|
+|[nginx.ingress.kubernetes.io/auth-tls-verify-client](#client-certificate-authentication)|string|
+|[nginx.ingress.kubernetes.io/auth-tls-error-page](#client-certificate-authentication)|string|
+|[nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream](#client-certificate-authentication)|"true" or "false"|
 |[nginx.ingress.kubernetes.io/auth-url](#external-authentication)|string|
 |[nginx.ingress.kubernetes.io/base-url-scheme](#rewrite)|string|
 |[nginx.ingress.kubernetes.io/client-body-buffer-size](#client-body-buffer-size)|string|
@@ -42,11 +42,13 @@ The following annotations are supported:
 |[nginx.ingress.kubernetes.io/proxy-send-timeout](#custom-timeouts)|number|
 |[nginx.ingress.kubernetes.io/proxy-read-timeout](#custom-timeouts)|number|
 |[nginx.ingress.kubernetes.io/proxy-next-upstream](#custom-timeouts)|string|
+|[nginx.ingress.kubernetes.io/proxy-next-upstream-tries](#custom-timeouts)|number|
 |[nginx.ingress.kubernetes.io/proxy-request-buffering](#custom-timeouts)|string|
 |[nginx.ingress.kubernetes.io/proxy-redirect-from](#proxy-redirect)|string|
 |[nginx.ingress.kubernetes.io/proxy-redirect-to](#proxy-redirect)|string|
 |[nginx.ingress.kubernetes.io/rewrite-target](#rewrite)|URI|
 |[nginx.ingress.kubernetes.io/secure-backends](#secure-backends)|"true" or "false"|
+|[nginx.ingress.kubernetes.io/secure-verify-ca-secret](#secure-backends)|string|
 |[nginx.ingress.kubernetes.io/server-alias](#server-alias)|string|
 |[nginx.ingress.kubernetes.io/server-snippet](#server-snippet)|string|
 |[nginx.ingress.kubernetes.io/service-upstream](#service-upstream)|"true" or "false"|
@@ -57,12 +59,17 @@ The following annotations are supported:
 |[nginx.ingress.kubernetes.io/upstream-max-fails](#custom-nginx-upstream-checks)|number|
 |[nginx.ingress.kubernetes.io/upstream-fail-timeout](#custom-nginx-upstream-checks)|number|
 |[nginx.ingress.kubernetes.io/upstream-hash-by](#custom-nginx-upstream-hashing)|string|
+|[nginx.ingress.kubernetes.io/load-balance](#custom-nginx-load-balancing)|string|
 |[nginx.ingress.kubernetes.io/upstream-vhost](#custom-nginx-upstream-vhost)|string|
 |[nginx.ingress.kubernetes.io/whitelist-source-range](#whitelist-source-range)|CIDR|
 |[nginx.ingress.kubernetes.io/proxy-buffering](#proxy-buffering)|string|
 |[nginx.ingress.kubernetes.io/ssl-ciphers](#ssl-ciphers)|string|
 |[nginx.ingress.kubernetes.io/connection-proxy-header](#connection-proxy-header)|string|
 |[nginx.ingress.kubernetes.io/enable-access-log](#enable-access-log)|"true" or "false"|
+|[nginx.ingress.kubernetes.io/lua-resty-waf](#lua-resty-waf)|string|
+|[nginx.ingress.kubernetes.io/lua-resty-waf-debug](#lua-resty-waf)|"true" or "false"|
+|[nginx.ingress.kubernetes.io/lua-resty-waf-ignore-rulesets](#lua-resty-waf)|string|
+|[nginx.ingress.kubernetes.io/lua-resty-waf-extra-rules](#lua-resty-waf)|string|
 
 **Note:** all the values must be a string. In case of booleans or number it must be quoted.
 
@@ -101,8 +108,8 @@ Indicates the [HTTP Authentication Type: Basic or Digest Access Authentication](
 nginx.ingress.kubernetes.io/auth-secret: secretName
 ```
 
-The name of the secret that contains the usernames and passwords with access to the `path`s defined in the Ingress Rule.
-The secret must be created in the same namespace as the Ingress rule.
+The name of the Secret that contains the usernames and passwords which are granted access to the `path`s defined in the Ingress rules.
+This annotation also accepts the alternative form "namespace/secretName", in which case the Secret lookup is performed in the referenced namespace instead of the Ingress namespace.
 
 ```
 nginx.ingress.kubernetes.io/auth-realm: "realm string"
@@ -136,6 +143,11 @@ To enable consistent hashing for a backend:
 
 `nginx.ingress.kubernetes.io/upstream-hash-by`: the nginx variable, text value or any combination thereof to use for consistent hashing. For example `nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"` to consistently hash upstream requests by the current request URI.
 
+### Custom NGINX load balancing
+
+This is similar to https://github.com/kubernetes/ingress-nginx/blob/master/docs/user-guide/configmap.md#load-balance but configures load balancing algorithm per ingress.
+Note that `nginx.ingress.kubernetes.io/upstream-hash-by` takes preference over this. If this and `nginx.ingress.kubernetes.io/upstream-hash-by` are not set then we fallback to using globally configured load balancing algorithm.
+
 ### Custom NGINX upstream vhost
 
 This configuration setting allows you to control the value for host in the following statement: `proxy_set_header Host $host`, which forms part of the location block.  This is useful if you need to call the upstream server by something other than `$host`.
@@ -149,7 +161,8 @@ The annotations are:
 nginx.ingress.kubernetes.io/auth-tls-secret: secretName
 ```
 
-The name of the secret that contains the full Certificate Authority chain `ca.crt` that is enabled to authenticate against this ingress. It's composed of namespace/secretName.
+The name of the Secret that contains the full Certificate Authority chain `ca.crt` that is enabled to authenticate against this Ingress.
+This annotation also accepts the alternative form "namespace/secretName", in which case the Secret lookup is performed in the referenced namespace instead of the Ingress namespace.
 
 ```
 nginx.ingress.kubernetes.io/auth-tls-verify-depth
@@ -195,12 +208,12 @@ Using this annotation you can add additional configuration to the NGINX location
 
 ```yaml
 nginx.ingress.kubernetes.io/configuration-snippet: |
-  more_set_headers "Request-Id: $request_id";
+  more_set_headers "Request-Id: $req_id";
 ```
 
 ### Default Backend
 
-The ingress controller requires a default backend. This service is handle the response when the service in the Ingress rule does not have endpoints.
+The ingress controller requires a default backend. This service handles the response when the service in the Ingress rule does not have endpoints.
 This is a global configuration for the ingress controller. In some cases could be required to return a custom content or format. In this scenario we can use the annotation `nginx.ingress.kubernetes.io/default-backend: <svc name>` to specify a custom default backend.
 
 ### Enable CORS
@@ -336,11 +349,14 @@ The annotation `nginx.ingress.kubernetes.io/ssl-passthrough` allows to configure
 **Important:**
 
 - Using the annotation `nginx.ingress.kubernetes.io/ssl-passthrough` invalidates all the other available annotations. This is because SSL Passthrough works in L4 (TCP).
-- The use of this annotation requires the flag `--enable-ssl-passthrough` (By default it is disabled)
+- The use of this annotation requires Proxy Protocol to be enabled in the load-balancer. For example enabling Proxy Protocol for AWS ELB is described [here](https://docs.aws.amazon.com/elasticloadbalancing/latest/classic/enable-proxy-protocol.html). If you're using ingress-controller without load balancer then the flag `--enable-ssl-passthrough` is required (by default it is disabled).
 
 ### Secure backends
 
 By default NGINX uses `http` to reach the services. Adding the annotation `nginx.ingress.kubernetes.io/secure-backends: "true"` in the Ingress rule changes the protocol to `https`.
+If you want to validate the upstream against a specific certificate, you can create a secret with it and reference the secret with the annotation `nginx.ingress.kubernetes.io/secure-verify-ca-secret`.
+
+Please note that if an invalid or non-existent secret is given, the NGINX ingress controller will ignore the `secure-backends` annotation.
 
 ### Service Upstream
 
@@ -379,7 +395,7 @@ To configure this setting globally for all Ingress rules, the `whitelist-source-
 
 ### Cookie affinity
 
-If you use the ``cookie`` type you can also specify the name of the cookie that will be used to route the requests with the annotation `nginx.ingress.kubernetes.io/session-cookie-name`. The default is to create a cookie named 'route'.
+If you use the ``cookie`` type you can also specify the name of the cookie that will be used to route the requests with the annotation `nginx.ingress.kubernetes.io/session-cookie-name`. The default is to create a cookie named 'INGRESSCOOKIE'.
 
 In case of NGINX the annotation `nginx.ingress.kubernetes.io/session-cookie-hash` defines which algorithm will be used to 'hash' the used upstream. Default value is `md5` and possible values are `md5`, `sha1` and `index`.
 The `index` option is not hashed, an in-memory index is used instead, it's quicker and the overhead is shorter Warning: the matching against upstream servers list is inconsistent. So, at reload, if upstreams servers has changed, index values are not guaranteed to correspond to the same server as before! USE IT WITH CAUTION and only if you need to!
@@ -395,6 +411,7 @@ In some scenarios is required to have different values. To allow this we provide
 - `nginx.ingress.kubernetes.io/proxy-send-timeout`
 - `nginx.ingress.kubernetes.io/proxy-read-timeout`
 - `nginx.ingress.kubernetes.io/proxy-next-upstream`
+- `nginx.ingress.kubernetes.io/proxy-next-upstream-tries`
 - `nginx.ingress.kubernetes.io/proxy-request-buffering`
 
 ### Proxy redirect
@@ -451,3 +468,35 @@ In some scenarios could be required to disable NGINX access logs. To enable this
 ```yaml
 nginx.ingress.kubernetes.io/enable-access-log: "false"
 ```
+
+### Lua Resty WAF
+
+Using `lua-resty-waf-*` annotations we can enable and control [lua-resty-waf](https://github.com/p0pr0ck5/lua-resty-waf) per location.
+Following configuration will enable WAF for the paths defined in the corresponding ingress:
+
+```yaml
+nginx.ingress.kubernetes.io/lua-resty-waf: "active"
+```
+
+In order to run it in debugging mode you can set `nginx.ingress.kubernetes.io/lua-resty-waf-debug` to `"true"` in addition to the above configuration.
+The other possible values for `nginx.ingress.kubernetes.io/lua-resty-waf` are `inactive` and `simulate`. In `inactive` mode WAF won't do anything, whereas
+in `simulate` mode it will log a warning message if there's a matching WAF rule for given request. This is useful to debug a rule and eliminate possible false positives before fully deploying it.
+
+`lua-resty-waf` comes with predefined set of rules(https://github.com/p0pr0ck5/lua-resty-waf/tree/84b4f40362500dd0cb98b9e71b5875cb1a40f1ad/rules) that covers ModSecurity CRS.
+You can use `nginx.ingress.kubernetes.io/lua-resty-waf-ignore-rulesets` to ignore subset of those rulesets. For an example:
+
+```yaml
+nginx.ingress.kubernetes.io/lua-resty-waf-ignore-rulesets: "41000_sqli, 42000_xss"
+```
+
+will ignore the two mentioned rulesets.
+
+It is also possible to configure custom WAF rules per ingress using `nginx.ingress.kubernetes.io/lua-resty-waf-extra-rules` annotation. For an example the following snippet will
+configure a WAF rule to deny requests with query string value that contains word `foo`:
+
+
+```yaml
+nginx.ingress.kubernetes.io/lua-resty-waf-extra-rules: '[=[ { "access": [ { "actions": { "disrupt" : "DENY" }, "id": 10001, "msg": "my custom rule", "operator": "STR_CONTAINS", "pattern": "foo", "vars": [ { "parse": [ "values", 1 ], "type": "REQUEST_ARGS" } ] } ], "body_filter": [], "header_filter":[] } ]=]'
+```
+
+For details on how to write WAF rules, please refer to https://github.com/p0pr0ck5/lua-resty-waf.

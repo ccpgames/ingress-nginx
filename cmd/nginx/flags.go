@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/golang/glog"
@@ -101,7 +102,7 @@ func parseFlags() (bool, *controller.Configuration, error) {
 		is being stopped. Default is true`)
 
 		sortBackends = flags.Bool("sort-backends", false,
-			`Defines if backends and it's endpoints should be sorted`)
+			`Defines if backends and its endpoints should be sorted`)
 
 		useNodeInternalIP = flags.Bool("report-node-internal-ip-address", false,
 			`Defines if the nodes IP address to be returned in the ingress status should be the internal instead of the external IP address`)
@@ -127,6 +128,13 @@ func parseFlags() (bool, *controller.Configuration, error) {
 
 		syncRateLimit = flags.Float32("sync-rate-limit", 0.3,
 			`Define the sync frequency upper limit`)
+
+		publishStatusAddress = flags.String("publish-status-address", "",
+			`User customized address to be set in the status of ingress resources. The controller will set the
+		endpoint records on the ingress using this address.`)
+
+		dynamicConfigurationEnabled = flags.Bool("enable-dynamic-configuration", false,
+			`When enabled controller will try to avoid Nginx reloads as much as possible by using Lua. Disabled by default.`)
 	)
 
 	flag.Set("logtostderr", "true")
@@ -187,28 +195,41 @@ func parseFlags() (bool, *controller.Configuration, error) {
 		glog.Warningf("Check of SSL certificate chain is disabled (--enable-ssl-chain-completion=false)")
 	}
 
+	// LuaJIT is not available on arch s390x and ppc64le
+	disableLua := false
+	if runtime.GOARCH == "s390x" || runtime.GOARCH == "ppc64le" {
+		disableLua = true
+		if *dynamicConfigurationEnabled {
+			*dynamicConfigurationEnabled = false
+			glog.Warningf("Disabling dynamic configuration feature (LuaJIT is not available in s390x and ppc64le)")
+		}
+	}
+
 	config := &controller.Configuration{
-		APIServerHost:            *apiserverHost,
-		KubeConfigFile:           *kubeConfigFile,
-		UpdateStatus:             *updateStatus,
-		ElectionID:               *electionID,
-		EnableProfiling:          *profiling,
-		EnableSSLPassthrough:     *enableSSLPassthrough,
-		EnableSSLChainCompletion: *enableSSLChainCompletion,
-		ResyncPeriod:             *resyncPeriod,
-		DefaultService:           *defaultSvc,
-		Namespace:                *watchNamespace,
-		ConfigMapName:            *configMap,
-		TCPConfigMapName:         *tcpConfigMapName,
-		UDPConfigMapName:         *udpConfigMapName,
-		DefaultSSLCertificate:    *defSSLCertificate,
-		DefaultHealthzURL:        *defHealthzURL,
-		PublishService:           *publishSvc,
-		ForceNamespaceIsolation:  *forceIsolation,
-		UpdateStatusOnShutdown:   *updateStatusOnShutdown,
-		SortBackends:             *sortBackends,
-		UseNodeInternalIP:        *useNodeInternalIP,
-		SyncRateLimit:            *syncRateLimit,
+		APIServerHost:               *apiserverHost,
+		KubeConfigFile:              *kubeConfigFile,
+		UpdateStatus:                *updateStatus,
+		ElectionID:                  *electionID,
+		EnableProfiling:             *profiling,
+		EnableSSLPassthrough:        *enableSSLPassthrough,
+		EnableSSLChainCompletion:    *enableSSLChainCompletion,
+		ResyncPeriod:                *resyncPeriod,
+		DefaultService:              *defaultSvc,
+		Namespace:                   *watchNamespace,
+		ConfigMapName:               *configMap,
+		TCPConfigMapName:            *tcpConfigMapName,
+		UDPConfigMapName:            *udpConfigMapName,
+		DefaultSSLCertificate:       *defSSLCertificate,
+		DefaultHealthzURL:           *defHealthzURL,
+		PublishService:              *publishSvc,
+		PublishStatusAddress:        *publishStatusAddress,
+		ForceNamespaceIsolation:     *forceIsolation,
+		UpdateStatusOnShutdown:      *updateStatusOnShutdown,
+		SortBackends:                *sortBackends,
+		UseNodeInternalIP:           *useNodeInternalIP,
+		SyncRateLimit:               *syncRateLimit,
+		DynamicConfigurationEnabled: *dynamicConfigurationEnabled,
+		DisableLua:                  disableLua,
 		ListenPorts: &ngx_config.ListenPorts{
 			Default:  *defServerPort,
 			Health:   *healthzPort,

@@ -18,10 +18,12 @@ package controller
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -144,6 +146,7 @@ func NewNGINXController(config *Configuration, fs file.Filesystem) *NGINXControl
 		n.syncStatus = status.NewStatusSyncer(status.Config{
 			Client:                 config.Client,
 			PublishService:         config.PublishService,
+			PublishStatusAddress:   config.PublishStatusAddress,
 			IngressLister:          n.store,
 			ElectionID:             config.ElectionID,
 			IngressClass:           class.IngressClass,
@@ -283,7 +286,6 @@ func (n *NGINXController) Start() {
 		go n.syncStatus.Run()
 	}
 
-	done := make(chan error, 1)
 	cmd := exec.Command(n.binary, "-c", cfgPath)
 
 	// put nginx in another process group to prevent it
@@ -306,7 +308,7 @@ func (n *NGINXController) Start() {
 
 	for {
 		select {
-		case err := <-done:
+		case err := <-n.ngxErrCh:
 			if n.isShuttingDown {
 				break
 			}
@@ -320,8 +322,12 @@ func (n *NGINXController) Start() {
 				process.WaitUntilPortIsAvailable(n.cfg.ListenPorts.HTTP)
 				// release command resources
 				cmd.Process.Release()
-				cmd = exec.Command(n.binary, "-c", cfgPath)
 				// start a new nginx master process if the controller is not being stopped
+				cmd = exec.Command(n.binary, "-c", cfgPath)
+				cmd.SysProcAttr = &syscall.SysProcAttr{
+					Setpgid: true,
+					Pgid:    0,
+				}
 				n.start(cmd)
 			}
 		case event := <-n.updateCh.Out():
@@ -446,7 +452,7 @@ Error: %v
 // 2. write the custom template (the complexity depends on the implementation)
 // 3. write the configuration file
 //
-// returning nill implies the backend will be reloaded.
+// returning nil implies the backend will be reloaded.
 // if an error is returned means requeue the update
 func (n *NGINXController) OnUpdate(ingressCfg ingress.Configuration) error {
 	cfg := n.store.GetBackendConfiguration()
@@ -602,23 +608,27 @@ func (n *NGINXController) OnUpdate(ingressCfg ingress.Configuration) error {
 	cfg.SSLDHParam = sslDHParam
 
 	tc := ngx_config.TemplateConfig{
-		ProxySetHeaders:         setHeaders,
-		AddHeaders:              addHeaders,
-		MaxOpenFiles:            maxOpenFiles,
-		BacklogSize:             sysctlSomaxconn(),
-		Backends:                ingressCfg.Backends,
-		PassthroughBackends:     ingressCfg.PassthroughBackends,
-		Servers:                 ingressCfg.Servers,
-		TCPBackends:             ingressCfg.TCPEndpoints,
-		UDPBackends:             ingressCfg.UDPEndpoints,
-		HealthzURI:              ngxHealthPath,
-		CustomErrors:            len(cfg.CustomHTTPErrors) > 0,
-		Cfg:                     cfg,
-		IsIPV6Enabled:           n.isIPV6Enabled && !cfg.DisableIpv6,
-		RedirectServers:         redirectServers,
-		IsSSLPassthroughEnabled: n.cfg.EnableSSLPassthrough,
-		ListenPorts:             n.cfg.ListenPorts,
-		PublishService:          n.GetPublishService(),
+		ProxySetHeaders:             setHeaders,
+		AddHeaders:                  addHeaders,
+		MaxOpenFiles:                maxOpenFiles,
+		BacklogSize:                 sysctlSomaxconn(),
+		Backends:                    ingressCfg.Backends,
+		PassthroughBackends:         ingressCfg.PassthroughBackends,
+		Servers:                     ingressCfg.Servers,
+		TCPBackends:                 ingressCfg.TCPEndpoints,
+		UDPBackends:                 ingressCfg.UDPEndpoints,
+		HealthzURI:                  ngxHealthPath,
+		CustomErrors:                len(cfg.CustomHTTPErrors) > 0,
+		Cfg:                         cfg,
+		IsIPV6Enabled:               n.isIPV6Enabled && !cfg.DisableIpv6,
+		NginxStatusIpv4Whitelist:    cfg.NginxStatusIpv4Whitelist,
+		NginxStatusIpv6Whitelist:    cfg.NginxStatusIpv6Whitelist,
+		RedirectServers:             redirectServers,
+		IsSSLPassthroughEnabled:     n.cfg.EnableSSLPassthrough,
+		ListenPorts:                 n.cfg.ListenPorts,
+		PublishService:              n.GetPublishService(),
+		DynamicConfigurationEnabled: n.cfg.DynamicConfigurationEnabled,
+		DisableLua:                  n.cfg.DisableLua,
 	}
 
 	content, err := n.t.Write(tc)
@@ -740,4 +750,52 @@ func (n *NGINXController) setupSSLProxy() {
 			go n.Proxy.Handle(conn)
 		}
 	}()
+}
+
+// IsDynamicConfigurationEnough decides if the new configuration changes can be dynamically applied without reloading
+func (n *NGINXController) IsDynamicConfigurationEnough(pcfg *ingress.Configuration) bool {
+	var copyOfRunningConfig ingress.Configuration = *n.runningConfig
+	var copyOfPcfg ingress.Configuration = *pcfg
+
+	copyOfRunningConfig.Backends = []*ingress.Backend{}
+	copyOfPcfg.Backends = []*ingress.Backend{}
+
+	return copyOfRunningConfig.Equal(&copyOfPcfg)
+}
+
+// ConfigureDynamically JSON encodes new Backends and POSTs it to an internal HTTP endpoint
+// that is handled by Lua
+func (n *NGINXController) ConfigureDynamically(pcfg *ingress.Configuration) error {
+	backends := make([]*ingress.Backend, len(pcfg.Backends))
+
+	for i, backend := range pcfg.Backends {
+		cleanedupBackend := *backend
+		cleanedupBackend.Service = nil
+		backends[i] = &cleanedupBackend
+	}
+
+	buf, err := json.Marshal(backends)
+	if err != nil {
+		return err
+	}
+
+	glog.V(2).Infof("posting backends configuration: %s", buf)
+
+	url := fmt.Sprintf("http://localhost:%d/configuration/backends", n.cfg.ListenPorts.Status)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			glog.Warningf("error while closing response body: \n%v", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("Unexpected error code: %d", resp.StatusCode)
+	}
+
+	return nil
 }

@@ -46,6 +46,7 @@ The following table shows a configuration option's name, type, and the default v
 |[ignore-invalid-headers](#ignore-invalid-headers)|bool|true|
 |[enable-vts-status](#enable-vts-status)|bool|false|
 |[vts-status-zone-size](#vts-status-zone-size)|string|"10m"|
+|[vts-sum-key](#vts-sum-key)|string|"*"|
 |[vts-default-filter-key](#vts-default-filter-key)|string|"$geoip_country_code country::*"|
 |[retry-non-idempotent](#retry-non-idempotent)|bool|"false"|
 |[error-log-level](#error-log-level)|string|"notice"|
@@ -63,6 +64,8 @@ The following table shows a configuration option's name, type, and the default v
 |[log-format-stream](#log-format-stream)|string|`[$time_local] $protocol $status $bytes_sent $bytes_received $session_time`|
 |[max-worker-connections](#max-worker-connections)|int|16384|
 |[map-hash-bucket-size](#max-worker-connections)|int|64|
+|[nginx-status-ipv4-whitelist](#nginx-status-ipv4-whitelist)|[]string|"127.0.0.1"|
+|[nginx-status-ipv6-whitelist](#nginx-status-ipv6-whitelist)|[]string|"::1"|
 |[proxy-real-ip-cidr](#proxy-real-ip-cidr)|[]string|"0.0.0.0/0"|
 |[proxy-set-headers](#proxy-set-headers)|string|""|
 |[server-name-hash-max-size](#server-name-hash-max-size)|int|1024|
@@ -82,12 +85,14 @@ The following table shows a configuration option's name, type, and the default v
 |[ssl-buffer-size](#ssl-buffer-size)|string|"4k"|
 |[use-proxy-protocol](#use-proxy-protocol)|bool|"false"|
 |[use-gzip](#use-gzip)|bool|"true"|
+|[use-geoip](#use-geoip)|bool|"true"|
 |[enable-brotli](#enable-brotli)|bool|"true"|
 |[brotli-level](#brotli-level)|int|4|
 |[brotli-types](#brotli-types)|string|"application/xml+rss application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component"|
 |[use-http2](#use-http2)|bool|"true"|
 |[gzip-types](#gzip-types)|string|"application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component"|
 |[worker-processes](#worker-processes)|string|`<Number of CPUs>`|
+|[worker-cpu-affinity](#worker-cpu-affinity)|string|""|
 |[worker-shutdown-timeout](#worker-shutdown-timeout)|string|"10s"|
 |[load-balance](#load-balance)|string|"least_conn"|
 |[variables-hash-bucket-size](#variables-hash-bucket-size)|int|128|
@@ -100,6 +105,7 @@ The following table shows a configuration option's name, type, and the default v
 |[bind-address-ipv6](#bind-address-ipv6)|[]string|""|
 |[forwarded-for-header](#forwarded-for-header)|string|"X-Forwarded-For"|
 |[compute-full-forwarded-for](#compute-full-forwarded-for)|bool|"false"|
+|[proxy-add-original-uri-header](#proxy-add-original-uri-header)|bool|"true"|
 |[enable-opentracing](#enable-opentracing)|bool|"false"|
 |[zipkin-collector-host](#zipkin-collector-host)|string|""|
 |[zipkin-collector-port](#zipkin-collector-port)|int|9411|
@@ -121,6 +127,7 @@ The following table shows a configuration option's name, type, and the default v
 |[proxy-cookie-path](#proxy-cookie-path)|string|"off"|
 |[proxy-cookie-domain](#proxy-cookie-domain)|string|"off"|
 |[proxy-next-upstream](#proxy-next-upstream)|string|"error timeout invalid_header http_502 http_503 http_504"|
+|[proxy-next-upstream-tries](#proxy-next-upstream-tries)|int|0|
 |[proxy-redirect-from](#proxy-redirect-from)|string|"off"|
 |[proxy-request-buffering](#proxy-request-buffering)|string|"on"|
 |[ssl-redirect](#ssl-redirect)|bool|"true"|
@@ -131,6 +138,8 @@ The following table shows a configuration option's name, type, and the default v
 |[http-redirect-code](#http-redirect-code)|int|308|
 |[proxy-buffering](#proxy-buffering)|string|"off"|
 |[limit-req-status-code](#limit-req-status-code)|int|503|
+|[no-tls-redirect-locations](#no-tls-redirect-locations)|string|"/.well-known/acme-challenge"|
+|[no-auth-locations](#no-auth-locations)|string|"/.well-known/acme-challenge"|
 
 ## add-headers
 
@@ -246,6 +255,13 @@ Vts config on http level enables the keys by user defined variable. The key is a
 _References:_
 - https://github.com/vozlt/nginx-module-vts#vhost_traffic_status_filter_by_set_key
 
+## vts-sum-key
+
+For metrics keyed (or when using Prometheus, labeled) by server zone, this value is used to indicate metrics for all server zones combined. Default value is *
+
+_References:_
+- https://github.com/vozlt/nginx-module-vts#vhost_traffic_status_display_sum_key
+
 ## retry-non-idempotent
 
 Since 1.9.13 NGINX will not retry non-idempotent requests (POST, LOCK, PATCH) in case of an error in the upstream server. The previous behavior can be restored using the value "true".
@@ -324,7 +340,7 @@ Example for json output:
 
 ```console
 log-format-upstream: '{ "time": "$time_iso8601", "remote_addr": "$proxy_protocol_addr",
-    "x-forward-for": "$proxy_add_x_forwarded_for", "request_id": "$request_id", "remote_user":
+    "x-forward-for": "$proxy_add_x_forwarded_for", "request_id": "$req_id", "remote_user":
     "$remote_user", "bytes_sent": $bytes_sent, "request_time": $request_time, "status":
     $status, "vhost": "$host", "request_proto": "$server_protocol", "path": "$uri",
     "request_query": "$args", "request_length": $request_length, "duration": $request_time,
@@ -460,6 +476,11 @@ Enables or disables the [PROXY protocol](https://www.nginx.com/resources/admin-g
 Enables or disables compression of HTTP responses using the ["gzip" module](http://nginx.org/en/docs/http/ngx_http_gzip_module.html).
 The default mime type list to compress is: `application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component`.
 
+## use-geoip
+
+Enables or disables ["geoip" module](http://nginx.org/en/docs/http/ngx_http_geoip_module.html) that creates variables with values depending on the client IP address, using the precompiled MaxMind databases.
+The default value is true.
+
 ## enable-brotli
 
 Enables or disables compression of HTTP responses using the ["brotli" module](https://github.com/google/ngx_brotli).
@@ -489,6 +510,15 @@ Sets the MIME types in addition to "text/html" to compress. The special value "\
 Sets the number of [worker processes](http://nginx.org/en/docs/ngx_core_module.html#worker_processes).
 The default of "auto" means number of available CPU cores.
 
+## worker-cpu-affinity
+
+Binds worker processes to the sets of CPUs. [worker_cpu_affinity](http://nginx.org/en/docs/ngx_core_module.html#worker_cpu_affinity).
+By default worker processes are not bound to any specific CPUs. The value can be:
+
+- "": empty string indicate no affinity is applied.
+- cpumask: e.g. `0001 0010 0100 1000` to bind processes to specific cpus.
+- auto: binding worker processes automatically to available CPUs.
+
 ## worker-shutdown-timeout
 
 Sets a timeout for Nginx to [wait for worker to gracefully shutdown](http://nginx.org/en/docs/ngx_core_module.html#worker_shutdown_timeout). The default is "10s".
@@ -501,6 +531,7 @@ The value can either be:
 - round_robin: to use the default round robin loadbalancer
 - least_conn: to use the least connected method
 - ip_hash: to use a hash of the server for routing.
+- ewma: to use the peak ewma method for routing (only available with `enable-dynamic-configuration` flag) 
 
 The default is least_conn.
 
@@ -562,6 +593,10 @@ Sets the header field for identifying the originating IP address of a client. De
 ## compute-full-forwarded-for
 
 Append the remote address to the X-Forwarded-For header instead of replacing it. When this option is enabled, the upstream application is responsible for extracting the client IP based on its own list of trusted proxies.
+
+## proxy-add-original-uri-header
+
+Adds an X-Original-Uri header with the original request URI to the backend request
 
 ## enable-opentracing
 
@@ -659,6 +694,10 @@ Sets a text that [should be changed in the domain attribute](http://nginx.org/en
 
 Specifies in [which cases](http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream) a request should be passed to the next server.
 
+## proxy-next-upstream-tries
+
+Limit the number of [possible tries](http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream_tries) a request should be passed to the next server.
+
 ## proxy-redirect-from
 
 Sets the original text that should be changed in the "Location" and "Refresh" header fields of a proxied server response. Default: off.
@@ -715,3 +754,13 @@ Enables or disables [buffering of responses from the proxied server](http://ngin
 ## limit-req-status-code
 
 Sets the [status code to return in response to rejected requests](http://nginx.org/en/docs/http/ngx_http_limit_req_module.html#limit_req_status).Default: 503
+
+## no-tls-redirect-locations
+
+A comma-separated list of locations on which http requests will never get redirected to their https counterpart.
+Default: "/.well-known/acme-challenge"
+
+## no-auth-locations
+
+A comma-separated list of locations that should not get authenticated.
+Default: "/.well-known/acme-challenge"

@@ -18,10 +18,10 @@ all: all-container
 BUILDTAGS=
 
 # Use the 0.0 tag for testing, it shouldn't clobber any release builds
-TAG?=0.11.0
+TAG?=0.13.0
 REGISTRY?=quay.io/kubernetes-ingress-controller
 GOOS?=linux
-DOCKER?=gcloud docker --
+DOCKER?=docker
 SED_I?=sed -i
 GOHOSTOS ?= $(shell go env GOHOSTOS)
 
@@ -45,12 +45,14 @@ ALL_ARCH = amd64 arm arm64 ppc64le s390x
 
 QEMUVERSION=v2.9.1-1
 
+BUSTED_ARGS=-v --pattern=_test
+
 IMGNAME = nginx-ingress-controller
 IMAGE = $(REGISTRY)/$(IMGNAME)
 MULTI_ARCH_IMG = $(IMAGE)-$(ARCH)
 
 # Set default base image dynamically for each arch
-BASEIMAGE?=quay.io/kubernetes-ingress-controller/nginx-$(ARCH):0.34
+BASEIMAGE?=quay.io/kubernetes-ingress-controller/nginx-$(ARCH):0.43
 
 ifeq ($(ARCH),arm)
 	QEMUARCH=arm
@@ -97,7 +99,7 @@ container: .container-$(ARCH)
 .PHONY: .container-$(ARCH)
 .container-$(ARCH):
 	cp -RP ./* $(TEMP_DIR)
-	$(SED_I) 's|BASEIMAGE|$(BASEIMAGE)|g' $(DOCKERFILE)
+	$(SED_I) "s|BASEIMAGE|$(BASEIMAGE)|g" $(DOCKERFILE)
 	$(SED_I) "s|QEMUARCH|$(QEMUARCH)|g" $(DOCKERFILE)
 	$(SED_I) "s|DUMB_ARCH|$(DUMB_ARCH)|g" $(DOCKERFILE)
 
@@ -135,7 +137,7 @@ clean:
 
 .PHONE: code-generator
 code-generator:
-		go-bindata -o internal/file/bindata.go -prefix="rootfs" -pkg=file -ignore=Dockerfile -ignore=".DS_Store" rootfs/...
+		go-bindata -nometadata -o internal/file/bindata.go -prefix="rootfs" -pkg=file -ignore=Dockerfile -ignore=".DS_Store" rootfs/...
 
 .PHONY: build
 build: clean
@@ -151,6 +153,10 @@ verify-all:
 test:
 	@go test -v -race -tags "$(BUILDTAGS) cgo" $(shell go list ${PKG}/... | grep -v vendor | grep -v '/test/e2e')
 
+.PHONY: lua-test
+lua-test:
+	@busted $(BUSTED_ARGS) ./rootfs/etc/nginx/lua/test;
+
 .PHONY: e2e-image
 e2e-image: sub-container-amd64
 	TAG=$(TAG) IMAGE=$(MULTI_ARCH_IMG) docker tag $(IMAGE):$(TAG) $(IMAGE):test
@@ -158,8 +164,8 @@ e2e-image: sub-container-amd64
 
 .PHONY: e2e-test
 e2e-test:
-	@go test -o e2e-tests -c ./test/e2e
-	@KUBECONFIG=${HOME}/.kube/config INGRESSNGINXCONFIG=${HOME}/.kube/config ./e2e-tests -test.parallel 1
+	@ginkgo build ./test/e2e
+	@KUBECONFIG=${HOME}/.kube/config ginkgo -randomizeSuites -randomizeAllSpecs -flakeAttempts=2 -p -trace -nodes=2 ./test/e2e/e2e.test
 
 .PHONY: cover
 cover:
@@ -180,6 +186,10 @@ cover:
 vet:
 	@go vet $(shell go list ${PKG}/... | grep -v vendor)
 
+.PHONY: luacheck
+luacheck:
+	luacheck -q ./rootfs/etc/nginx/lua/
+
 .PHONY: release
 release: all-container all-push
 	echo "done"
@@ -193,3 +203,9 @@ docker-push: all-push
 .PHONY: check_dead_links
 check_dead_links:
 	docker run -t -v $$PWD:/tmp aledbf/awesome_bot:0.1 --allow-dupe --allow-redirect $(shell find $$PWD -mindepth 1 -name "*.md" -printf '%P\n' | grep -v vendor | grep -v Changelog.md)
+
+.PHONY: dep-ensure
+dep-ensure:
+	dep version || go get -u github.com/golang/dep/cmd/dep
+	dep ensure -v
+	dep prune -v
